@@ -1,0 +1,201 @@
+---
+title: "Distribution Maps Exercise"
+author: "Sarah Krueger"
+date: "10/26/2021"
+output: html_document
+---
+```{r, message=FALSE, warning=FALSE, echo=TRUE, results='hide'}
+packages<-c("cowplot","dismo","leaflet","maps","mapdata","OpenStreetMap","raster","readxl","rgdal","tidyverse","utils")
+sapply(packages, library, character.only=T)
+```
+
+<body style="background-color:#f0f0f0;">
+
+```{r, message=FALSE, warning=FALSE}
+pacman::p_load("ggsn","leaflet","mapdata","maptools","OpenStreetMap","rgdal","tidyverse", "ggplot")
+library(broom)
+library(ggplot2)
+library(ggmap)
+library(rgbif)
+library(rasterVis)
+library(gplots)
+library(dismo)
+```
+
+![](pics/MYLU.jpg)
+
+For my first example I obtained records for *Mytois lucifugus* (MYLU) (Little brown bat) within the southeastern United States to show a simple map of MYLU captures.
+
+```{r data, echo=TRUE, message=FALSE, warning=FALSE}
+myotis.dis <- gbif("myotis", species = "lucifugus", ext = c(-130,-60,20,60),
+                   geo = TRUE, sp = TRUE, download = TRUE,
+                   removeZeros = TRUE)
+```
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE, fig.height=6, fig.width=7}
+myotis.dis.df <- cbind.data.frame(myotis.dis@coords[,1],
+                                  myotis.dis@coords[,2])
+
+colnames(myotis.dis.df) <- c("x","y")
+
+us <- map_data("state")
+
+ggplot(data = myotis.dis.df, aes(x=x, y=y)) +
+  geom_polygon(data = us, aes(x=long, y = lat, group = group),
+               fill = "white", color="black") +
+  geom_point() + xlab("Longitude") + ylab("Latitude") +
+  coord_fixed(xlim = c(-95,-74), ylim = c(29,41)) +
+  xlab("Longitude") + ylab("Latitude") + ggtitle("Little Brown Bat Capture Sites in the Southeastern United States") + 
+  theme_bw() + theme(plot.title = element_text(hjust = 0.1)) + 
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "#c51b8a"))
+```
+
+![](pics/MYSO.jpg)
+
+Next, I created two separate data frames for MYLU captures and *Myotis sodalis* (MYSO) (Indiana bat) captures and created a map to compare their distributions. 
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+lucifugus_rgbif <- occ_data(scientificName = "Myotis lucifugus",
+                 hasCoordinate = TRUE, limit = 4000,
+                 decimalLongitude = "-130, -60", 
+                 decimalLatitude = "20, 60")
+
+sodalis_rgbif <- occ_data(scientificName = "Myotis sodalis",
+                       hasCoordinate = TRUE, limit = 4000,
+                       decimalLongitude = "-130, -60", 
+                       decimalLatitude = "20, 60")
+```
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+lucifugus_rgbif_df <- cbind.data.frame(lucifugus_rgbif$data$species,
+                                  lucifugus_rgbif$data$decimalLatitude,
+                                  lucifugus_rgbif$data$decimalLongitude,
+                                  lucifugus_rgbif$data$stateProvince,
+                                  lucifugus_rgbif$data$verbatimLocality)
+
+sodalis_rgbif_df <- cbind.data.frame(sodalis_rgbif$data$species,
+                                  sodalis_rgbif$data$decimalLatitude,
+                                  sodalis_rgbif$data$decimalLongitude,
+                                  sodalis_rgbif$data$stateProvince,
+                                  sodalis_rgbif$data$verbatimLocality)
+
+colnames(lucifugus_rgbif_df) <- c("species","y","x","state","location")
+colnames(sodalis_rgbif_df) <- c("species","y","x","state","location")
+
+lucifugus_rgbif_df <- lucifugus_rgbif_df[complete.cases(lucifugus_rgbif_df[1:4]),]
+sodalis_rgbif_df <- sodalis_rgbif_df[complete.cases(sodalis_rgbif_df[1:4]),]
+```
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE, fig.height=6, fig.width=8}
+ggplot() +
+  geom_polygon(data = us, aes(x=long, y = lat, group = group),
+               fill = "white", color="black") +
+  geom_point(data = lucifugus_rgbif_df, aes(x=x, y=y, color = species), size = 3) +
+  geom_point(data = sodalis_rgbif_df, aes(x=x, y=y, color = species), size = 3) +  
+  coord_fixed(xlim = c(-95,-74), ylim = c(29,41)) +
+  xlab("Longitude") + ylab("Latitude") + ggtitle("Myotis Captures in the Southeastern US") + 
+  guides(color=guide_legend("Legend", override.aes = list(size = 4))) +
+  theme_bw() + theme(plot.title = element_text(hjust = 0.5)) + 
+  theme(legend.position = "bottom") +
+  theme(legend.title.align = 0.5, legend.box.just = "center") +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "#c51b8a"))
+```
+
+I then downloaded bioclimatic variables to create a map to visualize the probability of MYLU occurences in the southeastern US.
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+bioclim <- getData(name = "worldclim", res = 2.5, var = "bio", path = "./")
+
+names(bioclim) <- c("Ann Mean Temp","Mean Diurnal Range","Isothermality","Temperature Seasonality",
+                    "Max Temp Warmest Mo","Min Temp Coldest Mo","Ann Temp Range","Mean Temp Wettest Qtr",
+                    "Mean Temp Driest Qtr","Mean Temp Warmest Qtr","Mean Temp Coldest Qtr","Annual Precip",
+                    "Precip Wettest Mo","Precip Driest Mo","Precip Seasonality","Precip Wettest Qtr",
+                    "Precip Driest Qtr","Precip Warmest Qtr","Precip Coldest Qtr")
+
+bio_extent <- extent(x = c(
+  min(lucifugus_rgbif_df$x),
+  max(lucifugus_rgbif_df$x),
+  min(lucifugus_rgbif_df$y),
+  max(lucifugus_rgbif_df$y)))
+
+bioclim_extent <- crop(x = bioclim, y = bio_extent)
+bioclim_model <- bioclim(x = bioclim_extent, p = cbind(lucifugus_rgbif_df$x,lucifugus_rgbif_df$y))
+presence_model <- dismo::predict(object = bioclim_model, 
+                                 x = bioclim_extent, 
+                                 ext = bio_extent)
+```
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE, fig.height=6, fig.width=10}
+gplot (presence_model) + 
+  geom_polygon(data = us, aes(x= long, y = lat, group = group),
+               fill = "#f0f0f0", color="black") +
+  geom_raster(aes(fill=value)) +
+  geom_polygon(data = us, aes(x= long, y = lat, group = group),
+               fill = NA, color="black") +
+  geom_point(data = lucifugus_rgbif_df, aes(x = x, y = y), size = 3, color = "white", alpha = 0.5) +
+  scale_fill_gradientn(colours=c("#c51b8a","#fa9fb5","#fde0dd"), "Probability") +
+  coord_fixed(xlim = c(-95,-74), ylim = c(29,41)) +
+  xlab("Longitude") + ylab("Latitude") + ggtitle("Probability of MYLU Occurrence") + 
+  theme_bw() + theme(plot.title = element_text(hjust = 0.5)) + theme(legend.position = "right") +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "#f0f0f0"))
+```
+
+For my DRYAD example, I chose to download cave and culvert data in Texas from Leivers, Samantha et al. (2020), External temperature and distance from nearest entrance influence microclimates of cave and culvert roosting tri-colored bats *Perimyotis subflavus*, Dryad, Dataset, https://doi.org/10.5061/dryad.c866t1g36. 
+
+```{r dryad data, echo=TRUE, message=FALSE, warning=FALSE}
+bats <- download.file("https://datadryad.org/stash/dataset/doi:10.5061%2Fdryad.c866t1g36", destfile = "./bats.xlsx", mode = "wb")
+```
+
+```{r import from readxl xlsx, echo=TRUE, message=FALSE, warning=FALSE}
+bats_data <- read.csv("cave.and.culvert.csv")
+```
+
+```{r dryad map, echo=TRUE, message=FALSE, warning=FALSE}
+
+main_map <- ggplot(bats_data, aes(Longitude, Latitude)) +
+  geom_polygon(data = us, aes(x=long, y = lat, group = group),
+               fill = "gray", color="white") +
+  geom_polygon(data = us, aes(x=long, y = lat, group = group),
+               fill = "white", color="black") +
+  geom_point(aes(color = Site, size = `Microclimate.temperature`)) +
+  coord_fixed(xlim = c(-96, -105), ylim = c(28, 33)) +
+  xlab("Longitude") + ylab("Latitude") + ggtitle("Tri-colored bats in Texas Culverts and Caves") + 
+  guides(color=guide_legend("Site", override.aes = list(size = 5))) + 
+  guides(size=guide_legend("Microclimate Temperature (degrees Celsius)")) +  
+  theme_bw() + theme(plot.title = element_text(hjust = 0.5)) + 
+  theme(legend.position = "right") +
+  theme(legend.title.align = 0.5, legend.box.just = "center") +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "black"))
+main_map
+```
+
+```{r inset map, echo=TRUE, message=FALSE, warning=FALSE}
+
+onlytexas <- us[us$region == "texas", ]
+  
+inset <- ggplot() + 
+  geom_polygon(data = us, aes(x=long, y = lat, group = group),
+               fill = "grey", color="white") +
+  geom_polygon(data = onlytexas, aes(x=long, y = lat, group = group),
+               fill = "#c51b8a", color="black") +
+  coord_map(xlim = c(-90,-107), ylim = c(25,40), "polyconic") +
+  theme(panel.background = element_rect(fill = "black"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
+        axis.line=element_blank(), axis.text.x=element_blank(), axis.text.y=element_blank(),axis.ticks=element_blank(), 
+        axis.title.x=element_blank(), axis.title.y=element_blank()) +
+theme(plot.margin=grid::unit(c(0,0,0,0), "mm"))
+inset
+```
+
+```{r final map, echo=TRUE, message=FALSE, warning=FALSE}
+ggdraw() +
+draw_plot(main_map) + 
+draw_plot(inset, x = 0.024, y = 0.550, width = 0.15, height = 0.15)
+```
